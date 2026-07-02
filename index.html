@@ -5,6 +5,14 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>A princesa sem coroa</title>
+    <meta name="application-name" content="A princesa sem coroa">
+    <meta name="theme-color" content="#061120">
+    <meta name="mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-title" content="Princesa">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+    <link rel="manifest" href="manifest.webmanifest">
+    <link rel="apple-touch-icon" href="icons/icon-192.png">
 
     <style>
         html {
@@ -249,6 +257,84 @@
             pointer-events: none;
             z-index: 6;
             animation: hint-pulse 1.9s ease-in-out infinite;
+        }
+
+        .book-preload-panel {
+            position: absolute;
+            left: 50%;
+            bottom: 18px;
+            width: min(286px, calc(100% - 28px));
+            padding: 10px 12px 11px;
+            border-radius: 8px;
+            background: rgba(7, 18, 34, 0.88);
+            color: #eaf8ff;
+            text-align: center;
+            box-shadow:
+                0 16px 34px rgba(0, 0, 0, 0.34),
+                inset 0 0 0 1px rgba(127, 211, 255, 0.2);
+            transform: translateX(-50%);
+            transition: opacity 0.25s ease, transform 0.25s ease;
+            cursor: default;
+            z-index: 8;
+        }
+
+        .book-closed.unlock-panel-open .book-preload-panel,
+        .book-closed.unlocked .book-preload-panel,
+        .book-closed.opening .book-preload-panel {
+            opacity: 0;
+            pointer-events: none;
+            transform: translateX(-50%) translateY(8px);
+        }
+
+        .book-preload-button {
+            width: 100%;
+            border: 0;
+            border-radius: 999px;
+            padding: 9px 14px;
+            background: linear-gradient(135deg, #eaf8ff, #8fd9ff);
+            color: #102033;
+            font-family: Georgia, serif;
+            font-size: 14px;
+            font-weight: 700;
+            letter-spacing: 0;
+            cursor: pointer;
+            box-shadow: 0 8px 22px rgba(54, 168, 255, 0.26);
+        }
+
+        .book-preload-button:disabled {
+            cursor: default;
+            opacity: 0.82;
+        }
+
+        .book-preload-track {
+            position: relative;
+            height: 6px;
+            margin-top: 9px;
+            border-radius: 999px;
+            overflow: hidden;
+            background: rgba(255, 255, 255, 0.18);
+        }
+
+        .book-preload-track span {
+            position: absolute;
+            inset: 0 auto 0 0;
+            width: 0%;
+            border-radius: inherit;
+            background: linear-gradient(90deg, #64c8ff, #ffffff);
+            box-shadow: 0 0 14px rgba(100, 200, 255, 0.62);
+            transition: width 0.22s ease;
+        }
+
+        .book-preload-status {
+            min-height: 14px;
+            margin-top: 7px;
+            color: rgba(234, 248, 255, 0.82);
+            font-size: 11px;
+            line-height: 1.25;
+        }
+
+        .book-preload-panel.ready .book-preload-button {
+            background: linear-gradient(135deg, #f8fdff, #b8eeff);
         }
 
         .book-lock-badge {
@@ -3315,11 +3401,20 @@
             <div class="book-unlock-panel" id="bookUnlockPanel" onclick="event.stopPropagation()">
                 <p class="book-unlock-question">Qual o dia que eu te disse meu primeiro eu te amo?</p>
                 <form class="book-unlock-form" onsubmit="submitBookUnlock(event)">
-                    <input id="bookUnlockDate" type="text" inputmode="numeric" autocomplete="off" placeholder="dd/mm/aaaa" maxlength="10" aria-label="Data do primeiro eu te amo">
+                    <input id="bookUnlockDate" type="text" inputmode="numeric" autocomplete="off"
+                        placeholder="dd/mm/aaaa" maxlength="10" aria-label="Data do primeiro eu te amo">
                     <button type="submit" aria-label="Desbloquear livro">✓</button>
                 </form>
                 <div class="book-unlock-feedback" id="bookUnlockFeedback">Tenta lembrar com carinho...</div>
-                <div class="unlock-key" id="bookUnlockKey" role="button" aria-label="Chave para abrir o cadeado" onpointerdown="startUnlockKeyDrag(event)">🔑</div>
+                <div class="unlock-key" id="bookUnlockKey" role="button" aria-label="Chave para abrir o cadeado"
+                    onpointerdown="startUnlockKeyDrag(event)">🔑</div>
+            </div>
+            <div class="book-preload-panel" id="bookPreloadPanel" onclick="event.stopPropagation()">
+                <button class="book-preload-button" id="bookPreloadButton" type="button"
+                    onclick="preloadFullBook(event)">Baixar livro antes</button>
+                <div class="book-preload-track" aria-hidden="true"><span id="bookPreloadBar"></span></div>
+                <div class="book-preload-status" id="bookPreloadStatus">Bom para abrir no celular sem travar tanto.
+                </div>
             </div>
             <div class="open-hint">Toque no cadeado</div>
         </div>
@@ -3394,10 +3489,18 @@
         const bookUnlockDate = document.getElementById('bookUnlockDate');
         const bookUnlockFeedback = document.getElementById('bookUnlockFeedback');
         const bookUnlockKey = document.getElementById('bookUnlockKey');
+        const bookPreloadPanel = document.getElementById('bookPreloadPanel');
+        const bookPreloadButton = document.getElementById('bookPreloadButton');
+        const bookPreloadBar = document.getElementById('bookPreloadBar');
+        const bookPreloadStatus = document.getElementById('bookPreloadStatus');
         const BOOK_UNLOCK_DATE = '12/03/2026';
+        const PWA_CACHE_NAME = 'princesa-sem-coroa-v1';
         let bookUnlocked = false;
         let unlockDateAnswered = false;
         let isDraggingUnlockKey = false;
+        let fullBookPreloadStarted = false;
+        let fullBookPreloadComplete = false;
+        let fullBookPreloadPromise = null;
 
         function resetInitialBookLock() {
             const bookClosed = document.getElementById('bookClosed');
@@ -3509,7 +3612,6 @@
             const maxPage = Math.min(TOTAL_PAGES, centerPage + 8);
             const minMediaPage = Math.max(1, centerPage - 2);
             const maxMediaPage = Math.min(TOTAL_PAGES, centerPage + 4);
-            const shouldUnloadDistantAssets = window.matchMedia('(max-width: 760px)').matches;
 
             document.querySelectorAll('[data-page-image]').forEach(function (img) {
                 const pageNumber = Number(img.dataset.page || 0);
@@ -3517,8 +3619,6 @@
 
                 if (shouldLoad && !img.getAttribute('src')) {
                     img.src = img.dataset.src;
-                } else if (!shouldLoad && shouldUnloadDistantAssets && img.getAttribute('src')) {
-                    img.removeAttribute('src');
                 }
             });
 
@@ -3567,6 +3667,266 @@
 
             pagesToPreload.forEach(preloadPageImage);
             hydrateNearbyPageAssets();
+        }
+
+        function getAssetKind(src) {
+            const cleanSrc = src.split('?')[0].toLowerCase();
+            return /\.(mp4|webm|mov|m4v)$/.test(cleanSrc) ? 'video' : 'image';
+        }
+
+        function addFullBookPreloadAsset(assets, src, type) {
+            if (!src) return;
+
+            const cleanSrc = src.trim();
+            if (!cleanSrc || cleanSrc.startsWith('data:')) return;
+
+            if (!assets.has(cleanSrc)) {
+                assets.set(cleanSrc, {
+                    src: cleanSrc,
+                    type: type || getAssetKind(cleanSrc)
+                });
+            }
+        }
+
+        function getFullBookPreloadAssets() {
+            const assets = new Map();
+
+            addFullBookPreloadAsset(assets, 'index.html', 'document');
+            addFullBookPreloadAsset(assets, 'manifest.webmanifest', 'document');
+            addFullBookPreloadAsset(assets, 'sw.js', 'document');
+            addFullBookPreloadAsset(assets, 'icons/icon-192.png', 'image');
+            addFullBookPreloadAsset(assets, 'icons/icon-512.png', 'image');
+            addFullBookPreloadAsset(assets, 'imagens/capa.png', 'image');
+            addFullBookPreloadAsset(assets, 'imagens/imagemfundo.jpg', 'image');
+
+            for (let pageNumber = 1; pageNumber <= TOTAL_PAGES; pageNumber++) {
+                addFullBookPreloadAsset(assets, pageImageSrc(pageNumber), 'image');
+            }
+
+            document.querySelectorAll('img[src], img[data-src]').forEach(function (img) {
+                addFullBookPreloadAsset(assets, img.getAttribute('src'), 'image');
+                addFullBookPreloadAsset(assets, img.dataset ? img.dataset.src : '', 'image');
+            });
+
+            document.querySelectorAll('video[src], video[data-src]').forEach(function (video) {
+                addFullBookPreloadAsset(assets, video.getAttribute('src'), 'video');
+                addFullBookPreloadAsset(assets, video.dataset ? video.dataset.src : '', 'video');
+            });
+
+            return Array.from(assets.values());
+        }
+
+        function canUsePwaCache() {
+            return location.protocol !== 'file:' && 'caches' in window;
+        }
+
+        function getAbsoluteAssetUrl(src) {
+            return new URL(src, window.location.href).href;
+        }
+
+        async function cacheBookAsset(src) {
+            if (!canUsePwaCache()) return;
+
+            try {
+                const cache = await caches.open(PWA_CACHE_NAME);
+                const url = getAbsoluteAssetUrl(src);
+                const response = await fetch(url, { cache: 'reload' });
+
+                if (response && (response.ok || response.type === 'opaque')) {
+                    await cache.put(url, response.clone());
+                }
+            } catch (error) {
+                // O preload visual continua mesmo se algum item nao puder entrar no cache.
+            }
+        }
+
+        function preloadImageAsset(src) {
+            return new Promise(function (resolve) {
+                const img = new Image();
+
+                img.onload = function () {
+                    resolve(src);
+                };
+
+                img.onerror = function () {
+                    resolve(src);
+                };
+
+                img.src = src;
+
+                if (img.complete) {
+                    resolve(src);
+                }
+            });
+        }
+
+        function preloadVideoAsset(src) {
+            return new Promise(function (resolve) {
+                const video = document.createElement('video');
+                let settled = false;
+
+                function finish() {
+                    if (settled) return;
+
+                    settled = true;
+                    video.pause();
+                    video.removeAttribute('src');
+                    video.load();
+                    resolve(src);
+                }
+
+                video.preload = 'auto';
+                video.muted = true;
+                video.playsInline = true;
+                video.addEventListener('canplaythrough', finish, { once: true });
+                video.addEventListener('loadeddata', finish, { once: true });
+                video.addEventListener('error', finish, { once: true });
+                video.src = src;
+                video.load();
+
+                window.setTimeout(finish, 7000);
+            });
+        }
+
+        function preloadFileAsset(src) {
+            if (location.protocol === 'file:') {
+                return Promise.resolve(src);
+            }
+
+            return fetch(src)
+                .then(function () {
+                    return src;
+                })
+                .catch(function () {
+                    return src;
+                });
+        }
+
+        function updateFullBookPreloadProgress(loaded, total) {
+            const percent = total ? Math.round((loaded / total) * 100) : 100;
+
+            if (bookPreloadBar) {
+                bookPreloadBar.style.width = `${percent}%`;
+            }
+
+            if (bookPreloadStatus) {
+                bookPreloadStatus.textContent = `Baixando ${loaded}/${total} arquivos... ${percent}%`;
+            }
+        }
+
+        async function preloadAssetQueue(assets, onProgress) {
+            let loaded = 0;
+            let index = 0;
+            const workersCount = Math.min(4, Math.max(1, assets.length));
+
+            async function worker() {
+                while (index < assets.length) {
+                    const asset = assets[index++];
+
+                    if (asset.type === 'video') {
+                        await preloadVideoAsset(asset.src);
+                    } else if (asset.type === 'document') {
+                        await preloadFileAsset(asset.src);
+                    } else {
+                        await preloadImageAsset(asset.src);
+                    }
+
+                    await cacheBookAsset(asset.src);
+
+                    loaded++;
+                    onProgress(loaded, assets.length);
+                    await new Promise(function (resolve) {
+                        window.setTimeout(resolve, 18);
+                    });
+                }
+            }
+
+            await Promise.all(Array.from({ length: workersCount }, worker));
+        }
+
+        function keepAllBookPagesLoaded() {
+            document.querySelectorAll('[data-page-image]').forEach(function (img) {
+                const src = img.dataset ? img.dataset.src : '';
+
+                if (src && !img.getAttribute('src')) {
+                    img.loading = 'eager';
+                    img.src = src;
+                }
+            });
+
+            for (let pageNumber = 1; pageNumber <= TOTAL_PAGES; pageNumber++) {
+                preloadedPages.add(pageNumber);
+            }
+        }
+
+        function preloadFullBook(event) {
+            if (event) {
+                event.preventDefault();
+                event.stopPropagation();
+            }
+
+            if (fullBookPreloadComplete) {
+                if (bookPreloadStatus) {
+                    bookPreloadStatus.textContent = 'Pronto! Agora toque no cadeado.';
+                }
+                return fullBookPreloadPromise;
+            }
+
+            if (fullBookPreloadStarted && fullBookPreloadPromise) {
+                return fullBookPreloadPromise;
+            }
+
+            const assets = getFullBookPreloadAssets();
+            fullBookPreloadStarted = true;
+
+            if (bookPreloadPanel) {
+                bookPreloadPanel.classList.remove('ready');
+            }
+
+            if (bookPreloadButton) {
+                bookPreloadButton.disabled = true;
+                bookPreloadButton.textContent = 'Baixando...';
+            }
+
+            if (!canUsePwaCache() && bookPreloadStatus) {
+                bookPreloadStatus.textContent = 'Carregando para esta abertura...';
+            }
+
+            updateFullBookPreloadProgress(0, assets.length);
+
+            fullBookPreloadPromise = preloadAssetQueue(assets, updateFullBookPreloadProgress)
+                .then(function () {
+                    fullBookPreloadComplete = true;
+                    keepAllBookPagesLoaded();
+
+                    if (bookPreloadPanel) {
+                        bookPreloadPanel.classList.add('ready');
+                    }
+
+                    if (bookPreloadButton) {
+                        bookPreloadButton.textContent = 'Livro pronto';
+                    }
+
+                    if (bookPreloadStatus) {
+                        bookPreloadStatus.textContent = canUsePwaCache()
+                            ? 'Pronto! Livro salvo no app.'
+                            : 'Pronto nesta abertura. Para instalar, abra por servidor/link.';
+                    }
+                })
+                .catch(function () {
+                    fullBookPreloadStarted = false;
+
+                    if (bookPreloadButton) {
+                        bookPreloadButton.disabled = false;
+                        bookPreloadButton.textContent = 'Tentar baixar de novo';
+                    }
+
+                    if (bookPreloadStatus) {
+                        bookPreloadStatus.textContent = 'Nao consegui baixar tudo. Tente novamente.';
+                    }
+                });
+
+            return fullBookPreloadPromise;
         }
 
         function createPage28Hearts() {
@@ -4033,6 +4393,7 @@
         const RAIN_VOLUME = 0.28;
         let heartFadeTimer = null;
         let rainFadeTimer = null;
+        let leftPageLoadToken = 0;
 
         sound.volume = 0.9;
         sound.load();
@@ -4089,6 +4450,7 @@
             const pageNumber = getLeftPageNumber();
 
             if (!pageNumber || pageNumber > TOTAL_PAGES) {
+                leftPageLoadToken++;
                 leftPageImage.removeAttribute('src');
                 leftPageImage.classList.remove('visible');
                 leftPage.classList.remove('back-cover-open');
@@ -4097,12 +4459,32 @@
             }
 
             const nextLeftPageSrc = pageImageSrc(pageNumber);
-            if (!leftPageImage.getAttribute('src') || !leftPageImage.getAttribute('src').endsWith(nextLeftPageSrc)) {
-                leftPageImage.src = nextLeftPageSrc;
-            }
-            leftPageImage.classList.add('visible');
             leftPage.classList.add('has-page-image');
             leftPage.classList.toggle('back-cover-open', pageNumber === TOTAL_PAGES);
+
+            if (leftPageImage.getAttribute('src') && leftPageImage.getAttribute('src').endsWith(nextLeftPageSrc)) {
+                leftPageImage.classList.add('visible');
+                return;
+            }
+
+            const loadToken = ++leftPageLoadToken;
+            const img = new Image();
+
+            img.onload = function () {
+                if (loadToken !== leftPageLoadToken) return;
+
+                leftPageImage.src = nextLeftPageSrc;
+                leftPageImage.classList.add('visible');
+            };
+
+            img.onerror = function () {
+                if (loadToken !== leftPageLoadToken) return;
+
+                leftPageImage.src = nextLeftPageSrc;
+                leftPageImage.classList.add('visible');
+            };
+
+            img.src = nextLeftPageSrc;
         }
 
         function updateFinalCaptionTyping(shouldShow) {
@@ -5223,6 +5605,29 @@
                 closeBook();
             }
         });
+
+        function registerBookPwa() {
+            if (location.protocol === 'file:') {
+                if (bookPreloadStatus) {
+                    bookPreloadStatus.textContent = 'Para instalar como app, abra por localhost ou por um link.';
+                }
+                return;
+            }
+
+            if (!('serviceWorker' in navigator)) return;
+
+            window.addEventListener('load', function () {
+                navigator.serviceWorker.register('./sw.js').catch(function () { });
+            });
+
+            window.addEventListener('appinstalled', function () {
+                if (bookPreloadStatus) {
+                    bookPreloadStatus.textContent = 'App instalado. Agora baixe o livro antes de abrir.';
+                }
+            });
+        }
+
+        registerBookPwa();
     </script>
 
 </body>

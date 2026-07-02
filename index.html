@@ -15,9 +15,7 @@
         body {
             margin: 0;
             overflow: hidden;
-            background:
-                linear-gradient(rgba(0, 0, 0, 0.38), rgba(0, 0, 0, 0.38)),
-                url("imagens/imagemfundo.jpg") center / cover no-repeat;
+            background: #061120;
             display: flex;
             justify-content: center;
             align-items: center;
@@ -28,6 +26,24 @@
             /* Impede que o navegador intercepte o toque para scroll ou navegação */
             user-select: none;
             /* Impede que o usuário selecione imagens acidentalmente ao deslizar */
+        }
+
+        body::before {
+            content: "";
+            position: fixed;
+            inset: 0;
+            background:
+                linear-gradient(rgba(0, 0, 0, 0.38), rgba(0, 0, 0, 0.38)),
+                url("imagens/imagemfundo.jpg") center / cover no-repeat;
+            pointer-events: none;
+            z-index: 0;
+            transform: translateZ(0);
+            will-change: transform;
+        }
+
+        body>* {
+            position: relative;
+            z-index: 1;
         }
 
         .falling-sky {
@@ -3468,6 +3484,66 @@
             return `imagens/p${originalPageNumber}.png`;
         }
 
+        function createPageImage(pageNumber) {
+            if (!pageNumber) return '';
+
+            const src = pageImageSrc(pageNumber);
+            const eager = pageNumber <= 3;
+            const srcAttr = eager ? ` src="${src}"` : '';
+            return `<img data-page-image data-page="${pageNumber}" data-src="${src}"${srcAttr} loading="${pageNumber > 5 ? 'lazy' : 'eager'}" decoding="async">`;
+        }
+
+        function createLazyPageMedia(pageNumber, tagName, className, src, attributes) {
+            const extraAttributes = attributes ? ` ${attributes}` : '';
+
+            if (tagName === 'video') {
+                return `<video class="${className}" data-page-media data-page="${pageNumber}" data-src="${src}"${extraAttributes}></video>`;
+            }
+
+            return `<img class="${className}" data-page-media data-page="${pageNumber}" data-src="${src}" alt="" loading="lazy"${extraAttributes}>`;
+        }
+
+        function hydrateNearbyPageAssets() {
+            const centerPage = current === 0 ? 1 : current * 2;
+            const minPage = Math.max(1, centerPage - 6);
+            const maxPage = Math.min(TOTAL_PAGES, centerPage + 8);
+            const minMediaPage = Math.max(1, centerPage - 2);
+            const maxMediaPage = Math.min(TOTAL_PAGES, centerPage + 4);
+            const shouldUnloadDistantAssets = window.matchMedia('(max-width: 760px)').matches;
+
+            document.querySelectorAll('[data-page-image]').forEach(function (img) {
+                const pageNumber = Number(img.dataset.page || 0);
+                const shouldLoad = pageNumber >= minPage && pageNumber <= maxPage;
+
+                if (shouldLoad && !img.getAttribute('src')) {
+                    img.src = img.dataset.src;
+                } else if (!shouldLoad && shouldUnloadDistantAssets && img.getAttribute('src')) {
+                    img.removeAttribute('src');
+                }
+            });
+
+            document.querySelectorAll('[data-page-media]').forEach(function (media) {
+                const pageNumber = Number(media.dataset.page || 0);
+                const shouldLoad = pageNumber >= minMediaPage && pageNumber <= maxMediaPage;
+
+                if (shouldLoad && !media.getAttribute('src')) {
+                    media.src = media.dataset.src;
+                    if (media.tagName === 'VIDEO') {
+                        media.load();
+                        media.play().catch(function () { });
+                    }
+                } else if (!shouldLoad && media.getAttribute('src')) {
+                    if (media.tagName === 'VIDEO') {
+                        media.pause();
+                    }
+                    media.removeAttribute('src');
+                    if (media.tagName === 'VIDEO') {
+                        media.load();
+                    }
+                }
+            });
+        }
+
         function preloadPageImage(pageNumber) {
             if (!pageNumber || pageNumber < 1 || pageNumber > TOTAL_PAGES || preloadedPages.has(pageNumber)) return;
 
@@ -3490,6 +3566,7 @@
             ];
 
             pagesToPreload.forEach(preloadPageImage);
+            hydrateNearbyPageAssets();
         }
 
         function createPage28Hearts() {
@@ -3699,7 +3776,25 @@
             }
 
             burst += '</div>';
-            return `<img class="page-right-daisy-image" src="imagens/margarida2.png" alt="" loading="lazy">${burst}`;
+            return `${createLazyPageMedia(pageNumber, 'img', 'page-right-daisy-image', 'imagens/margarida2.png')}${burst}`;
+        }
+
+        function createFrontPageContent(frontIdx, isFinalBlankPage) {
+            if (frontIdx) {
+                return `${createPageImage(frontIdx)}${createRightPageDaisy(frontIdx)}${frontIdx === 9 ? createLazyPageMedia(9, 'img', 'page-9-rain-gif', 'gifs/chuva.gif', 'onclick="showPage9RainNote(event)"') + '<div class="page-9-rain-note" id="page9RainNote">Eu estava esperando naquela chuva feito um cachorro molhado</div>' + createPage9Raindrops() : ''}${frontIdx === 25 ? createFoldedNote() : ''}${frontIdx === 27 ? createLazyPageMedia(27, 'video', 'page-27-thinking-video', 'gifs/pensandogif.mp4', 'autoplay loop muted playsinline') : ''}${frontIdx === 33 ? createLazyPageMedia(33, 'img', 'page-33-laugh-gif', 'gifs/rindo.gif') : ''}${frontIdx === 51 ? createLazyPageMedia(51, 'img', 'page-51-coco-gif', 'gifs/coco.gif') : ''}${frontIdx === shiftedPage(39) ? createMemoryLock() : ''}${frontIdx === shiftedPage(41) ? createPage41Flowers() : ''}${frontIdx === shiftedPage(45) ? createHiddenWord() : ''}${frontIdx === shiftedPage(53) ? createImageLetter() : ''}${frontIdx === shiftedPage(67) ? createMemoryGallery() : ''}`;
+            }
+
+            if (!isFinalBlankPage) {
+                return '<div class="blank-page"></div>';
+            }
+
+            return `<div class="blank-page final-blank-page-top">${createLazyPageMedia(TOTAL_PAGES - 1, 'img', 'final-blank-gif-top', 'gifs/deitados.gif')}<button class="final-caption-moon" type="button" onclick="revealFinalCaption(event)" aria-label="Revelar mensagem final">☾</button><div class="final-gif-caption"><span class="final-caption-sparkle">✦</span><span class="final-caption-sparkle">✦</span><span class="final-caption-sparkle">✦</span><span class="final-gif-caption-text" data-text="Eu amo cada momento sozinho com você, cada segundo sentados em algum cantinho qualquer."></span><span class="final-gif-caption-cursor"></span></div></div>`;
+        }
+
+        function createBackPageContent(backIdx) {
+            if (!backIdx) return '';
+
+            return `${createPageImage(backIdx)}${backIdx === 6 ? createWishStar() : ''}${backIdx === 18 ? createClickConstellation() : ''}${backIdx === 28 ? createLazyPageMedia(28, 'img', 'page-28-gif', 'gifs/abraço.gif') + createPage28Hearts() : ''}${backIdx === shiftedPage(30) ? createSecretLetter() : ''}${backIdx === shiftedPage(58) ? createLazyPageMedia(shiftedPage(58), 'video', 'page-58-swing-video', 'gifs/balanço.mp4', 'autoplay loop muted playsinline') : ''}${backIdx === shiftedPage(60) ? createSurprisePolaroid() : ''}`;
         }
 
         function createLeaf(frontIdx, backIdx) {
@@ -3710,12 +3805,11 @@
 
             let content = `<div class="page-face front">
                                 <div class="page-shadow"></div>
-                                ${frontIdx ? `<img src="${pageImageSrc(frontIdx)}" loading="${frontIdx > 5 ? 'lazy' : 'eager'}">${createRightPageDaisy(frontIdx)}${frontIdx === 9 ? '<img class="page-9-rain-gif" src="gifs/chuva.gif" alt="" loading="lazy" onclick="showPage9RainNote(event)"><div class="page-9-rain-note" id="page9RainNote">Eu estava esperando naquela chuva feito um cachorro molhado</div>' + createPage9Raindrops() : ''}${frontIdx === 25 ? createFoldedNote() : ''}${frontIdx === 27 ? '<video class="page-27-thinking-video" src="gifs/pensandogif.mp4" autoplay loop muted playsinline></video>' : ''}${frontIdx === 33 ? '<img class="page-33-laugh-gif" src="gifs/rindo.gif" alt="" loading="lazy">' : ''}${frontIdx === 51 ? '<img class="page-51-coco-gif" src="gifs/coco.gif" alt="" loading="lazy">' : ''}${frontIdx === shiftedPage(39) ? createMemoryLock() : ''}${frontIdx === shiftedPage(41) ? createPage41Flowers() : ''}${frontIdx === shiftedPage(45) ? createHiddenWord() : ''}${frontIdx === shiftedPage(53) ? createImageLetter() : ''}${frontIdx === shiftedPage(67) ? createMemoryGallery() : ''}` : (isFinalBlankPage ? '<div class="blank-page final-blank-page-top"><img class="final-blank-gif-top" src="gifs/deitados.gif" alt=""><button class="final-caption-moon" type="button" onclick="revealFinalCaption(event)" aria-label="Revelar mensagem final">☾</button><div class="final-gif-caption"><span class="final-caption-sparkle">✦</span><span class="final-caption-sparkle">✦</span><span class="final-caption-sparkle">✦</span><span class="final-gif-caption-text" data-text="Eu amo cada momento sozinho com você, cada segundo sentados em algum cantinho qualquer."></span><span class="final-gif-caption-cursor"></span></div></div>' : '<div class="blank-page"></div>')}
+                                ${createFrontPageContent(frontIdx, isFinalBlankPage)}
                             </div>`;
 
-            // Cada folha tem frente e verso, como um livro real: p1/p2, p3/p4...
             content += `<div class="page-face back">
-                            ${backIdx ? `<img src="${pageImageSrc(backIdx)}" loading="${backIdx > 5 ? 'lazy' : 'eager'}">${backIdx === 6 ? createWishStar() : ''}${backIdx === 18 ? createClickConstellation() : ''}${backIdx === 28 ? '<img class="page-28-gif" src="gifs/abraço.gif" alt="">' + createPage28Hearts() : ''}${backIdx === shiftedPage(30) ? createSecretLetter() : ''}${backIdx === shiftedPage(58) ? '<video class="page-58-swing-video" src="gifs/balanço.mp4" autoplay loop muted playsinline></video>' : ''}${backIdx === shiftedPage(60) ? createSurprisePolaroid() : ''}` : ''}
+                            ${createBackPageContent(backIdx)}
                         </div>`;
 
             pageDiv.innerHTML = content;
@@ -3738,7 +3832,6 @@
             }
             pageContainer.appendChild(pageDiv);
         }
-
         // Gera as páginas dinamicamente
         // Gera folhas reais: p1 na frente / p2 no verso, p3 / p4...
         for (let i = 1; i <= TOTAL_PAGES; i += 2) {
@@ -3757,7 +3850,7 @@
 
         function createFallingSky() {
             const emojis = ["★", "☾", "✦"];
-            const amount = 22;
+            const amount = window.matchMedia('(max-width: 760px)').matches ? 12 : 22;
 
             for (let i = 0; i < amount; i++) {
                 const emoji = document.createElement('span');
@@ -4003,7 +4096,10 @@
                 return;
             }
 
-            leftPageImage.src = pageImageSrc(pageNumber);
+            const nextLeftPageSrc = pageImageSrc(pageNumber);
+            if (!leftPageImage.getAttribute('src') || !leftPageImage.getAttribute('src').endsWith(nextLeftPageSrc)) {
+                leftPageImage.src = nextLeftPageSrc;
+            }
             leftPageImage.classList.add('visible');
             leftPage.classList.add('has-page-image');
             leftPage.classList.toggle('back-cover-open', pageNumber === TOTAL_PAGES);
@@ -4934,6 +5030,7 @@
                 page.classList.add("flipped", "flipping-forward");
                 playSound();
                 current++;
+                preloadNearbyPages();
                 if (shouldShowMagicDust(current)) {
                     spawnPageMagicDust('forward');
                 }
@@ -4966,6 +5063,7 @@
                 page.classList.remove("flipped");
                 page.classList.add("flipping-backward");
                 playSound();
+                preloadNearbyPages();
                 if (shouldShowMagicDust(current)) {
                     spawnPageMagicDust('backward');
                 }
